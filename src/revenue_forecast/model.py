@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX, SARIMAXResults
 
@@ -12,7 +13,7 @@ MODEL_PATH = MODEL_DIR / "daily_sarima.pkl"
 
 def train_daily_sarima(daily: pd.DataFrame, forecast_horizon: int = 180):
     """
-    Train a SARIMA model on daily total_sales and evaluate on a hold-out period.
+    Train a SARIMA model on log-transformed daily total_sales and evaluate on a hold-out period.
 
     Returns:
         fitted_model, metrics (dict), test_df (with actuals + forecast)
@@ -22,13 +23,15 @@ def train_daily_sarima(daily: pd.DataFrame, forecast_horizon: int = 180):
     daily = daily.set_index("date")
     y = daily["total_sales"].asfreq("D")
 
-    # Define train/test split: last `forecast_horizon` days as test
-    train_y = y.iloc[:-forecast_horizon]
-    test_y = y.iloc[-forecast_horizon:]
+    # Log-transform to stabilize variance
+    y_log = np.log1p(y)
 
-    # Simple baseline SARIMA config
+    # Train/test split on the transformed series
+    train_y_log = y_log.iloc[:-forecast_horizon]
+    test_y_log = y_log.iloc[-forecast_horizon:]
+
     model = SARIMAX(
-        train_y,
+        train_y_log,
         order=(1, 1, 1),
         seasonal_order=(1, 1, 1, 7),
         enforce_stationarity=False,
@@ -37,19 +40,31 @@ def train_daily_sarima(daily: pd.DataFrame, forecast_horizon: int = 180):
 
     results = model.fit(disp=False)
 
-    # Forecast over the test horizon
-    forecast = results.forecast(steps=forecast_horizon)
-    forecast.index = test_y.index
+    # Forecast on log scale
+    forecast_log = results.forecast(steps=forecast_horizon)
+    forecast_log.index = test_y_log.index
+
+    # Inverse transform back to original scale
+    forecast = np.expm1(forecast_log)
+    test_actual = np.expm1(test_y_log)
 
     test_df = pd.DataFrame(
         {
-            "actual": test_y,
+            "actual": test_actual,
             "forecast": forecast,
         }
     )
 
     mae = (test_df["forecast"] - test_df["actual"]).abs().mean()
-    mape = (test_df["forecast"] - test_df["actual"]).abs().div(test_df["actual"]).mean() * 100
+    mape = (
+        (test_df["forecast"] - test_df["actual"])
+        .abs()
+        .div(test_df["actual"])
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna()
+        .mean()
+        * 100
+    )
 
     metrics = {
         "mae": float(mae),
