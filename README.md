@@ -56,6 +56,7 @@ Dataset and model artifacts are not committed to the repository. They are downlo
 
 ## 4. Project Structure
 
+```text
 revenue-forecast-dashboard/
 ├── dashboards/
 │   └── app.py                    # Streamlit dashboard
@@ -71,7 +72,7 @@ revenue-forecast-dashboard/
 ├── .gitignore                    # excludes data, models, artifacts
 ├── requirements.txt
 └── README.md
-
+```
 ---
 
 ## 5. Setup
